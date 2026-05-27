@@ -1,6 +1,9 @@
 import { z } from "zod"
 
-export const MatrixSchema = z.object({
+export const FormSchema = z.object({
+  nro_variables: z.number().int().min(2).optional(),
+  nro_restrictions: z.number().int().min(1).optional(),
+  type_optimization: z.enum(["graphical", "two_steps"]).optional(),
   optimization: z.enum(["MIN", "MAX"], {
     error: "Selecciona MIN o MAX",
   }),
@@ -18,9 +21,7 @@ export const MatrixSchema = z.object({
     .array(
       z
         .object({
-          coefficients: z.array(
-            z.number({ error: "Debe ser un número" }).nullable()
-          ),
+          coefficients: z.array(z.number({ error: "Debe ser un número" })),
           operator: z.enum(["<=", ">=", "="], {
             error: "Selecciona un operador",
           }),
@@ -31,8 +32,8 @@ export const MatrixSchema = z.object({
                 : "Debe ser un número",
           }),
         })
-        .refine((data) => data.coefficients.some((c) => c !== null), {
-          message: "Debe ingresar al menos un coeficiente",
+        .refine((data) => data.coefficients.some((c) => c !== 0), {
+          message: "Debe ingresar al menos un coeficiente distinto de 0",
           path: ["coefficients"],
         })
     )

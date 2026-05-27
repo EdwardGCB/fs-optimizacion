@@ -1,12 +1,12 @@
 import ApiService from "@/apis/ApiService.js"
 
-const primaryPath = "/grafic"
-class GraficService {
+const primaryPath = "/optimizations"
+class Service {
   create(data: any): Promise<any> {
-    return ApiService.post(primaryPath, data)
+    return ApiService.post(primaryPath + `/`, data)
   }
-  get(id: string): Promise<any> {
-    return ApiService.get(primaryPath + `/${id}`)
+  get(type: string, id: string): Promise<any> {
+    return ApiService.get(primaryPath + `/${type}/${id}`)
   }
   update(id: string, data: any): Promise<any> {
     return ApiService.put(primaryPath + `/${id}`, data)
@@ -16,4 +16,4 @@ class GraficService {
   }
 }
 
-export default new GraficService()
+export default new Service()
