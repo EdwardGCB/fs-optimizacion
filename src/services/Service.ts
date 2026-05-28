@@ -8,8 +8,11 @@ class Service {
   get(type: string, id: string): Promise<any> {
     return ApiService.get(primaryPath + `/${type}/${id}`)
   }
+  search(data: any): Promise<any> {
+    return ApiService.get(primaryPath + `/`, { params: data })
+  }
   update(id: string, data: any): Promise<any> {
-    return ApiService.put(primaryPath + `/${id}`, data)
+    return ApiService.put(primaryPath + `/${id}`, { params: data})
   }
   delete(id: string): Promise<any> {
     return ApiService.delete(primaryPath + `/${id}`)

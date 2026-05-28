@@ -19,7 +19,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Loader2, Trash2 } from "lucide-react"
 import GraficService from "@/services/Service"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Dialog,
   DialogContent,
@@ -31,6 +31,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { FormSchema } from "@/utils/schemas/Form"
 import { useNavigate } from "react-router-dom"
+import { Badge } from "@/components/ui/badge"
 
 const DEFAULT_VARIABLES = 2
 
@@ -59,6 +60,68 @@ const parseFractionOrNumber = (raw: string): number | undefined => {
   return Number.isFinite(n) ? n : NaN
 }
 
+const formatFraction = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(value)) return "-"
+
+  const rounded = Math.round(value)
+  if (Math.abs(value - rounded) < 1e-9) return String(rounded)
+
+  const sign = value < 0 ? "-" : ""
+  const x = Math.abs(value)
+  const maxDenominator = 1000
+  let bestNumerator = 1
+  let bestDenominator = 1
+  let bestError = Math.abs(x - 1)
+
+  for (let denominator = 1; denominator <= maxDenominator; denominator++) {
+    const numerator = Math.round(x * denominator)
+    const error = Math.abs(x - numerator / denominator)
+
+    if (error < bestError) {
+      bestError = error
+      bestNumerator = numerator
+      bestDenominator = denominator
+    }
+
+    if (error < 1e-9) break
+  }
+
+  return `${sign}${bestNumerator}/${bestDenominator}`
+}
+
+const formatLinearExpression = (coefficients: number[]) => {
+  const terms = coefficients
+    .map((value, index) => {
+      if (Math.abs(value) < 1e-9) return null
+
+      const sign = value < 0 ? "-" : "+"
+      const absValue = Math.abs(value)
+      const coefficient =
+        Math.abs(absValue - 1) < 1e-9 ? "" : formatFraction(absValue)
+
+      return {
+        sign,
+        text: `${coefficient}X${index + 1}`,
+      }
+    })
+    .filter(Boolean) as { sign: string; text: string }[]
+
+  if (!terms.length) return "0"
+
+  return terms
+    .map((term, index) => {
+      if (index === 0) return term.sign === "-" ? `- ${term.text}` : term.text
+      return ` ${term.sign} ${term.text}`
+    })
+    .join("")
+}
+
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("es", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value))
+
 export function Home() {
   const [loading, setLoading] = useState(false)
   const [numVariables, setNumVariables] = useState(DEFAULT_VARIABLES)
@@ -66,6 +129,10 @@ export function Home() {
   // Texto crudo por celda para permitir entradas intermedias como "1/" mientras
   // el usuario escribe una fracción. Clave: "obj-i" | "res-i-j" | "val-i".
   const [rawCells, setRawCells] = useState<Record<string, string>>({})
+  const [currentPage, setCurrentPage] = useState(1)
+  const limit = 10
+  const [totalPages, setTotalPages] = useState(1)
+  const [items, setItems] = useState<any[]>([])
   const navigate = useNavigate()
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -187,6 +254,17 @@ export function Home() {
 
   // Helper para errores top-level del array de coeficientes objetivo
   const coefficientsErrors = form.formState.errors.coefficients
+
+  useEffect(()=>{
+    GraficService.search({page: currentPage, limit: limit}).then((res)=>{
+      if(!res.success){
+        return
+      }
+      setItems(res.data.items)
+      setTotalPages(res.data.total_pages)
+    }).catch((err)=>console.error("❌ error:", err))
+  },[currentPage, limit]);
+
 
   return (
     <div className="min-h-svh space-y-4 p-8">
@@ -657,6 +735,135 @@ export function Home() {
           <p className="mt-1 text-xs text-muted-foreground">
             Aquí puedes ver los resultados de tus modelos anteriores.
           </p>
+        </div>
+
+        {items.length > 0 ? (
+          <div className="flex flex-col gap-4">
+            {items.map((item) => {
+              const payload = item.payload
+              const result = item.result
+              const isOptimal = result?.status === "optimal"
+              const methodLabel =
+                item.type_optimization === "graphical"
+                  ? "Método gráfico"
+                  : "Método 2 pasos"
+
+              return (
+                <Card key={item.id}>
+                  <CardHeader className="border-b">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <CardTitle>{methodLabel}</CardTitle>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {item.created_at ? formatDate(item.created_at) : "-"}
+                        </p>
+                      </div>
+                      <Badge variant={isOptimal ? "default" : "destructive"}>
+                        {isOptimal ? "Óptimo" : result?.status ?? "Sin estado"}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="space-y-4 pt-4">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div>
+                        <span className="text-muted-foreground">Tipo:</span>{" "}
+                        {payload?.optimization ?? "-"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Restricciones:
+                        </span>{" "}
+                        {payload?.nro_restrictions ?? "-"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">
+                          Variables:
+                        </span>{" "}
+                        {payload?.nro_variables ?? "-"}
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Z:</span>{" "}
+                        {formatFraction(result?.z)}
+                      </div>
+                    </div>
+
+                    {payload?.coefficients && (
+                      <div className="rounded-none border p-3 text-xs">
+                        <p className="mb-1 font-medium text-muted-foreground">
+                          Función objetivo
+                        </p>
+                        <p>
+                          {payload.optimization} z ={" "}
+                          {formatLinearExpression(payload.coefficients)}
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="rounded-none border p-3 text-xs">
+                      <p className="mb-1 font-medium text-muted-foreground">
+                        Solución
+                      </p>
+                      {result?.solution &&
+                      Object.keys(result.solution).length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {Object.entries(result.solution).map(
+                            ([variable, value]) => (
+                              <Badge key={variable} variant="outline">
+                                {variable} = {formatFraction(value as number)}
+                              </Badge>
+                            )
+                          )}
+                        </div>
+                      ) : (
+                        <p className="text-muted-foreground">
+                          Sin solución disponible
+                        </p>
+                      )}
+                    </div>
+
+                    <Button
+                      type="button"
+                      className="w-full"
+                      onClick={() =>
+                        navigate(`/optimization/${item.type_optimization}/${item.id}`)
+                      }
+                    >
+                      Ver más
+                    </Button>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+        ) : (
+          <Card>
+            <CardContent className="py-6 text-center text-sm text-muted-foreground">
+              No hay resultados guardados todavía.
+            </CardContent>
+          </Card>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={currentPage <= 1}
+            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+          >
+            Anterior
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            Página {currentPage} de {totalPages}
+          </p>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={currentPage >= totalPages}
+            onClick={() => setCurrentPage((page) => page + 1)}
+          >
+            Siguiente
+          </Button>
         </div>
       </div>
     </div>
